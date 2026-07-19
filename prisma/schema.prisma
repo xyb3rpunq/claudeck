@@ -1,0 +1,61 @@
+// Prisma schema untuk Claudeck
+// Dev lokal memakai SQLite. Untuk production (Supabase/Neon), ganti provider
+// menjadi "postgresql" dan set DATABASE_URL yang sesuai.
+// Catatan: SQLite tidak mendukung enum, jadi field role/status memakai String
+// dan divalidasi di application layer (zod).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  creditBalance Float          @default(0)
+  plan          String         @default("free")
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
+  transactions  Transaction[]
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String    @default("New Chat")
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  tokensUsed     Int          @default(0)
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  userId       String
+  amountRp     Int
+  creditsAdded Float
+  paymentRef   String   @unique
+  status       String   @default("pending") // "pending" | "success" | "failed"
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
