@@ -87,31 +87,57 @@ export async function POST(req: Request) {
   }));
   history.push({ role: "user", content: message });
 
-  // 4. Panggil Anthropic API dengan streaming
+  // 4. Panggil Anthropic API dengan streaming.
+  // Pakai create({stream:true}) agar error upstream (invalid key, kredit API
+  // habis, rate limit Anthropic) terjadi SEBELUM response stream dimulai,
+  // sehingga bisa dikembalikan sebagai JSON error yang jelas ke frontend.
   const client = new Anthropic();
   const encoder = new TextEncoder();
 
-  const stream = client.messages.stream({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    messages: history,
-  });
+  let anthropicStream: AsyncIterable<Anthropic.RawMessageStreamEvent>;
+  try {
+    anthropicStream = await client.messages.create({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      messages: history,
+      stream: true,
+    });
+  } catch (err) {
+    const e = err as { status?: number; message?: string };
+    logger.error("anthropic_api_error", {
+      userId,
+      status: e.status,
+      message: e.message,
+    });
+    const friendly =
+      e.message?.includes("credit balance") ?? false
+        ? "Layanan AI sementara tidak tersedia (kredit API penyedia habis). Silakan hubungi admin."
+        : e.status === 429
+          ? "Layanan AI sedang sibuk. Coba lagi beberapa saat."
+          : "Gagal menghubungi layanan AI. Coba lagi nanti.";
+    return NextResponse.json({ error: friendly }, { status: 502 });
+  }
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
-      stream.on("text", (text) => {
-        controller.enqueue(encoder.encode(text));
-      });
-
       try {
-        const finalMessage = await stream.finalMessage();
-        const assistantText = finalMessage.content
-          .filter((b): b is Anthropic.TextBlock => b.type === "text")
-          .map((b) => b.text)
-          .join("");
+        let assistantText = "";
+        let inputTokens = 0;
+        let outputTokens = 0;
 
-        const inputTokens = finalMessage.usage.input_tokens;
-        const outputTokens = finalMessage.usage.output_tokens;
+        for await (const event of anthropicStream) {
+          if (event.type === "message_start") {
+            inputTokens = event.message.usage.input_tokens;
+          } else if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            assistantText += event.delta.text;
+            controller.enqueue(encoder.encode(event.delta.text));
+          } else if (event.type === "message_delta") {
+            outputTokens = event.usage.output_tokens;
+          }
+        }
 
         // 5 & 6. Hitung cost dan potong saldo
         const cost = calculateCost(inputTokens, outputTokens);
@@ -158,9 +184,6 @@ export async function POST(req: Request) {
         });
         controller.error(err);
       }
-    },
-    cancel() {
-      stream.abort();
     },
   });
 
