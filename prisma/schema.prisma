@@ -28,6 +28,7 @@ model Conversation {
   id        String    @id @default(cuid())
   userId    String
   title     String    @default("New Chat")
+  model     String    @default("claude-sonnet-5")
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
@@ -41,6 +42,10 @@ model Message {
   role           String // "user" | "assistant"
   content        String
   tokensUsed     Int          @default(0)
+  // Model yang menghasilkan pesan ini (hanya diisi untuk role "assistant").
+  model          String?
+  // Biaya yang dipotong dari saldo untuk pesan ini, dalam kredit (Rupiah).
+  costRp         Float        @default(0)
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 

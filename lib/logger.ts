@@ -23,12 +23,23 @@ export const logger = {
 };
 
 /** Log pemakaian token harian per user — untuk deteksi anomali/abuse. */
-export function logTokenUsage(userId: string, inputTokens: number, outputTokens: number) {
+export function logTokenUsage(
+  userId: string,
+  usage: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    costRp: number;
+  }
+) {
+  const cacheRead = usage.cacheReadTokens ?? 0;
+  const cacheWrite = usage.cacheWriteTokens ?? 0;
   logger.info("token_usage", {
     userId,
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens + outputTokens,
+    ...usage,
+    totalTokens: usage.inputTokens + usage.outputTokens + cacheRead + cacheWrite,
     day: new Date().toISOString().slice(0, 10),
   });
 }

@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
-import { TOPUP_PACKAGES, formatRupiah, RATE_PER_1K_TOKENS } from "@/lib/pricing";
+import {
+  DEFAULT_MODEL,
+  MODELS,
+  TOPUP_PACKAGES,
+  estimateMessages,
+  formatRupiah,
+  ratePer1kTokens,
+} from "@/lib/pricing";
 
 declare global {
   interface Window {
@@ -75,7 +82,9 @@ export default function TopupClient({
       <div className="mx-auto max-w-3xl">
         <h1 className="text-2xl font-bold">Top-up Saldo</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          1 kredit = Rp 1 · Biaya chat Rp {RATE_PER_1K_TOKENS}/1.000 token.
+          1 kredit = Rp 1 · {MODELS[DEFAULT_MODEL].label}:{" "}
+          {formatRupiah(ratePer1kTokens(DEFAULT_MODEL, "input"))}/1K token masuk,{" "}
+          {formatRupiah(ratePer1kTokens(DEFAULT_MODEL, "output"))}/1K token keluar.
           Pembayaran diproses aman via Midtrans.
         </p>
 
@@ -101,8 +110,8 @@ export default function TopupClient({
                 = {formatRupiah(p.amountRp)} kredit
               </div>
               <div className="mt-1 text-xs text-zinc-500">
-                ± {Math.floor((p.amountRp / RATE_PER_1K_TOKENS) * 1000).toLocaleString("id-ID")}{" "}
-                token
+                ± {estimateMessages(p.amountRp).toLocaleString("id-ID")} pesan di{" "}
+                {MODELS[DEFAULT_MODEL].label}
               </div>
               <button
                 onClick={() => handlePay(p.id)}

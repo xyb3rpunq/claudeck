@@ -6,7 +6,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import MessageBubble from "@/components/MessageBubble";
+import ModelPicker from "@/components/ModelPicker";
 import TopupModal from "@/components/TopupModal";
+import { DEFAULT_MODEL, resolveModel, type ModelId } from "@/lib/pricing";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -22,6 +24,7 @@ export default function ChatWindow({
   const [loadingHistory, setLoadingHistory] = useState(Boolean(conversationId));
   const [error, setError] = useState<string | null>(null);
   const [showTopup, setShowTopup] = useState(false);
+  const [model, setModel] = useState<ModelId>(DEFAULT_MODEL);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -47,6 +50,7 @@ export default function ChatWindow({
               })
             )
           );
+          setModel(resolveModel(data.conversation?.model));
         }
         setLoadingHistory(false);
       }
@@ -96,7 +100,7 @@ export default function ChatWindow({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: convId, message: text }),
+        body: JSON.stringify({ conversationId: convId, message: text, model }),
       });
 
       if (!res.ok) {
@@ -222,9 +226,10 @@ export default function ChatWindow({
               {sending ? "..." : "Kirim"}
             </button>
           </div>
-          <p className="mt-2 text-center text-xs text-zinc-600">
-            {input.length}/4000 karakter
-          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <ModelPicker value={model} onChange={setModel} disabled={sending} />
+            <span className="text-xs text-zinc-600">{input.length}/4000 karakter</span>
+          </div>
         </div>
       </div>
     </div>

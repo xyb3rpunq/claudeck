@@ -16,10 +16,14 @@ export async function GET(
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: params.id, userId },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      model: true,
+      createdAt: true,
       messages: {
         orderBy: { createdAt: "asc" },
-        select: { id: true, role: true, content: true, createdAt: true },
+        select: { id: true, role: true, content: true, model: true, createdAt: true },
       },
     },
   });

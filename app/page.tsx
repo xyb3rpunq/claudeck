@@ -1,5 +1,14 @@
 import Link from "next/link";
-import { RATE_PER_1K_TOKENS, TOPUP_PACKAGES, formatRupiah } from "@/lib/pricing";
+import {
+  DEFAULT_MODEL,
+  MODELS,
+  MODEL_IDS,
+  TOPUP_PACKAGES,
+  estimateMessages,
+  formatContextWindow,
+  formatRupiah,
+  ratePer1kTokens,
+} from "@/lib/pricing";
 
 const FAQS = [
   {
@@ -11,8 +20,8 @@ const FAQS = [
     a: "Top-up saldo kredit via Midtrans (QRIS, VA bank, e-wallet, kartu). Saldo dipotong sesuai jumlah token yang benar-benar kamu pakai — tanpa langganan bulanan.",
   },
   {
-    q: "Berapa biayanya?",
-    a: `Rp ${RATE_PER_1K_TOKENS}/1.000 token (input + output). 1 kredit = Rp 1. Riwayat pemakaian dan sisa saldo bisa dicek kapan saja di halaman Billing.`,
+    q: "Kenapa harga masuk dan keluar beda?",
+    a: "Karena tarif resmi Anthropic memang begitu: token jawaban (keluar) lima kali lebih mahal dari token pertanyaan (masuk). Kami meneruskan struktur yang sama supaya kamu tidak membayar lebih untuk pertanyaan pendek.",
   },
   {
     q: "Apakah percakapan saya aman?",
@@ -69,11 +78,46 @@ export default function LandingPage() {
 
       {/* Pricing */}
       <section id="pricing" className="mx-auto max-w-5xl px-6 py-16">
-        <h2 className="text-center text-3xl font-bold">Harga Sederhana</h2>
+        <h2 className="text-center text-3xl font-bold">Harga Transparan</h2>
         <p className="mt-3 text-center text-zinc-400">
-          Rp {RATE_PER_1K_TOKENS} per 1.000 token. Tanpa biaya bulanan. Kredit tidak hangus.
+          Bayar per token, tanpa biaya bulanan. Kredit tidak hangus.
         </p>
-        <div className="mt-10 grid gap-6 sm:grid-cols-3">
+
+        {/* Tarif per model */}
+        <div className="mt-10 overflow-x-auto rounded-2xl border border-zinc-800">
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-900 text-left text-zinc-400">
+              <tr>
+                <th className="px-4 py-3 font-medium">Model</th>
+                <th className="px-4 py-3 font-medium">Token masuk /1K</th>
+                <th className="px-4 py-3 font-medium">Token keluar /1K</th>
+                <th className="px-4 py-3 font-medium">Konteks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {MODEL_IDS.map((id) => (
+                <tr key={id} className="border-t border-zinc-800">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold">{MODELS[id].label}</div>
+                    <div className="text-xs text-zinc-500">{MODELS[id].tagline}</div>
+                  </td>
+                  <td className="px-4 py-3 text-zinc-300">
+                    {formatRupiah(ratePer1kTokens(id, "input"))}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-300">
+                    {formatRupiah(ratePer1kTokens(id, "output"))}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-400">
+                    {formatContextWindow(MODELS[id].contextTokens)} token
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Paket top-up */}
+        <div className="mt-8 grid gap-6 sm:grid-cols-3">
           {TOPUP_PACKAGES.map((p) => (
             <div
               key={p.id}
@@ -84,7 +128,8 @@ export default function LandingPage() {
                 = {formatRupiah(p.amountRp)} kredit
               </div>
               <div className="mt-1 text-sm text-zinc-500">
-                ± {Math.floor((p.amountRp / RATE_PER_1K_TOKENS) * 1000).toLocaleString("id-ID")} token
+                ± {estimateMessages(p.amountRp).toLocaleString("id-ID")} pesan di{" "}
+                {MODELS[DEFAULT_MODEL].label}
               </div>
               <Link
                 href="/register"

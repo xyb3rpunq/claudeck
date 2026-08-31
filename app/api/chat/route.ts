@@ -8,20 +8,29 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authOptions, getSessionUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { calculateCost } from "@/lib/pricing";
+import { calculateCost, MODELS, MODEL_IDS, resolveModel, type ModelId } from "@/lib/pricing";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger, logTokenUsage } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 1024;
+const MAX_TOKENS = 4096;
+
+// Chat adalah beban latency-sensitive: effort "medium" memberi kualitas yang
+// baik tanpa membakar token thinking seperti default "high".
+const CHAT_EFFORT = "medium" as const;
+
+// Prompt caching baru diaktifkan setelah percakapan punya riwayat, karena
+// menulis cache berbiaya 1.25x sementara membacanya hanya 0.1x — menguntungkan
+// hanya kalau prefix-nya benar-benar dipakai ulang di giliran berikutnya.
+const CACHE_MIN_HISTORY_MESSAGES = 2;
 
 // STEP 7 — validasi input dengan zod (max 4000 karakter)
 const chatSchema = z.object({
   conversationId: z.string().min(1),
   message: z.string().min(1, "Pesan tidak boleh kosong").max(4000, "Pesan maksimal 4000 karakter"),
+  model: z.enum(MODEL_IDS).optional(),
 });
 
 export async function POST(req: Request) {
@@ -73,6 +82,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Percakapan tidak ditemukan" }, { status: 404 });
   }
 
+  // Model: pilihan dari request menang, jatuh ke model tersimpan percakapan.
+  const model: ModelId = resolveModel(parsed.data.model ?? conversation.model);
+  const spec = MODELS[model];
+
   if (!process.env.ANTHROPIC_API_KEY) {
     logger.error("anthropic_key_missing", { userId });
     return NextResponse.json(
@@ -97,15 +110,23 @@ export async function POST(req: Request) {
   let anthropicStream: AsyncIterable<Anthropic.RawMessageStreamEvent>;
   try {
     anthropicStream = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: MAX_TOKENS,
       messages: history,
       stream: true,
+      ...(conversation.messages.length >= CACHE_MIN_HISTORY_MESSAGES
+        ? { cache_control: { type: "ephemeral" as const } }
+        : {}),
+      ...(spec.supportsEffort ? { output_config: { effort: CHAT_EFFORT } } : {}),
+      ...(spec.supportsAdaptiveThinking
+        ? { thinking: { type: "adaptive" as const, display: "omitted" as const } }
+        : {}),
     });
   } catch (err) {
     const e = err as { status?: number; message?: string };
     logger.error("anthropic_api_error", {
       userId,
+      model,
       status: e.status,
       message: e.message,
     });
@@ -124,10 +145,15 @@ export async function POST(req: Request) {
         let assistantText = "";
         let inputTokens = 0;
         let outputTokens = 0;
+        let cacheReadTokens = 0;
+        let cacheWriteTokens = 0;
 
         for await (const event of anthropicStream) {
           if (event.type === "message_start") {
-            inputTokens = event.message.usage.input_tokens;
+            const usage = event.message.usage;
+            inputTokens = usage.input_tokens;
+            cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+            cacheWriteTokens = usage.cache_creation_input_tokens ?? 0;
           } else if (
             event.type === "content_block_delta" &&
             event.delta.type === "text_delta"
@@ -139,8 +165,13 @@ export async function POST(req: Request) {
           }
         }
 
-        // 5 & 6. Hitung cost dan potong saldo
-        const cost = calculateCost(inputTokens, outputTokens);
+        // 5 & 6. Hitung cost per-model (input/output/cache terpisah) dan potong saldo
+        const cost = calculateCost(model, {
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
+        });
         await prisma.user.update({
           where: { id: userId },
           data: { creditBalance: { decrement: cost } },
@@ -153,32 +184,45 @@ export async function POST(req: Request) {
               conversationId,
               role: "user",
               content: message,
-              tokensUsed: inputTokens,
+              tokensUsed: inputTokens + cacheReadTokens + cacheWriteTokens,
             },
             {
               conversationId,
               role: "assistant",
               content: assistantText,
               tokensUsed: outputTokens,
+              model,
+              costRp: cost,
             },
           ],
         });
 
-        // Auto-title percakapan baru dari pesan pertama
-        if (conversation.messages.length === 0) {
-          await prisma.conversation.update({
-            where: { id: conversationId },
-            data: { title: message.slice(0, 60) },
-          });
-        }
+        // Simpan model terpilih + auto-title percakapan baru dari pesan pertama
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: {
+            model,
+            ...(conversation.messages.length === 0
+              ? { title: message.slice(0, 60) }
+              : {}),
+          },
+        });
 
-        logTokenUsage(userId, inputTokens, outputTokens);
+        logTokenUsage(userId, {
+          model,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
+          costRp: cost,
+        });
         controller.close();
       } catch (err) {
         // STEP 10 — log error dari Anthropic API (rate limit, invalid key, dsb)
         const e = err as { status?: number; message?: string };
-        logger.error("anthropic_api_error", {
+        logger.error("anthropic_stream_error", {
           userId,
+          model,
           status: e.status,
           message: e.message,
         });
