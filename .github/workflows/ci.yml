@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Nilai dummy — cukup untuk prisma generate dan next build; tidak ada koneksi
+  # database sungguhan yang dibuka saat build.
+  DATABASE_URL: "file:./dev.db"
+  NEXTAUTH_SECRET: "ci-dummy-secret-not-used-at-runtime"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
