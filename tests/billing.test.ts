@@ -114,10 +114,37 @@ describe("minimumBalanceFor", () => {
 });
 
 describe("estimateTokens", () => {
-  it("menaksir lebih tinggi, bukan lebih rendah", () => {
+  it("menaksir lebih tinggi, bukan lebih rendah, untuk teks Latin", () => {
     // ~4 karakter per token adalah rasio umum; estimasi kita harus di atasnya.
     const text = "a".repeat(4000);
     expect(estimateTokens(text)).toBeGreaterThan(text.length / 4);
+  });
+
+  it("tidak menaksir terlalu rendah untuk aksara non-Latin", () => {
+    // Satu karakter Mandarin/Jepang/Korea umumnya menghabiskan sekitar satu
+    // token. Rumus lama (panjang / 3) menaksir hanya sepertiganya, yang membuat
+    // jatah output kelewat longgar dan saldo bisa jebol ke minus.
+    for (const teks of [
+      "请把这份文件总结成三个要点",
+      "この文書を三つの要点にまとめて",
+      "이 문서를 세 가지 요점으로 정리해",
+      "لخص هذا المستند في ثلاث نقاط",
+    ]) {
+      const nonAscii = [...teks].filter((c) => c.charCodeAt(0) > 127).length;
+      expect(estimateTokens(teks)).toBeGreaterThanOrEqual(nonAscii);
+      expect(estimateTokens(teks)).toBeGreaterThan(teks.length / 3);
+    }
+  });
+
+  it("menghitung emoji lebih dari satu token", () => {
+    // Emoji memakai surrogate pair dan biasanya menghabiskan 2+ token.
+    expect(estimateTokens("🎉")).toBeGreaterThanOrEqual(2);
+  });
+
+  it("tetap tumbuh seiring panjang teks campuran", () => {
+    const pendek = estimateTokens("halo 世界");
+    const panjang = estimateTokens("halo 世界".repeat(10));
+    expect(panjang).toBeGreaterThan(pendek * 5);
   });
 
   it("mengembalikan 0 untuk teks kosong", () => {

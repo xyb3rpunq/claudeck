@@ -28,11 +28,28 @@ export function rupiahPerOutputToken(modelId: ModelId): number {
 }
 
 /**
- * Estimasi jumlah token dari teks. Sengaja konservatif (membagi 3, bukan 4)
- * supaya biaya ditaksir lebih tinggi, bukan lebih rendah.
+ * Estimasi jumlah token dari teks, sengaja dibuat menaksir lebih tinggi supaya
+ * jatah output tidak pernah kelewat longgar.
+ *
+ * Teks Latin rata-rata ~4 karakter per token, jadi membaginya 3 sudah aman.
+ * Tapi rasio itu tidak berlaku untuk aksara non-Latin: satu karakter Mandarin,
+ * Jepang, Korea, Arab, atau satu emoji umumnya menghabiskan sekitar satu token
+ * atau lebih. Membaginya 3 juga akan menaksir SEPERTIGA dari yang sebenarnya —
+ * dan taksiran yang terlalu rendah membuat saldo bisa jebol ke minus.
+ *
+ * Karena itu karakter non-ASCII dihitung satu token per unit UTF-16 (emoji yang
+ * memakai surrogate pair otomatis terhitung dua).
  */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3);
+  let asciiChars = 0;
+  let nonAsciiUnits = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) > 127) nonAsciiUnits++;
+    else asciiChars++;
+  }
+
+  return Math.ceil(asciiChars / 3) + nonAsciiUnits;
 }
 
 /**
