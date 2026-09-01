@@ -18,10 +18,10 @@ import {
 } from "@/lib/pricing";
 import {
   affordableOutputTokens,
-  estimateTokens,
   minimumBalanceFor,
   MIN_OUTPUT_TOKENS,
 } from "@/lib/billing";
+import { trimHistory, type HistoryMessage } from "@/lib/history";
 import { acquireChatSlot, checkRateLimit, releaseChatSlot } from "@/lib/rate-limit";
 import { logger, logTokenUsage } from "@/lib/logger";
 
@@ -103,11 +103,27 @@ export async function POST(req: Request) {
     const model: ModelId = resolveModel(parsed.data.model ?? conversation.model);
     const spec = MODELS[model];
 
+    // Pangkas riwayat lebih dulu supaya biaya per giliran tidak tumbuh tanpa
+    // batas mengikuti panjang percakapan.
+    const trimmed = trimHistory([
+      ...conversation.messages.map<HistoryMessage>((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content,
+      })),
+      { role: "user", content: message },
+    ]);
+    if (trimmed.droppedCount > 0) {
+      logger.info("history_trimmed", {
+        userId,
+        conversationId,
+        droppedCount: trimmed.droppedCount,
+        keptMessages: trimmed.messages.length,
+      });
+    }
+
     // Batasi panjang jawaban sesuai saldo, bukan menolak user bersaldo tipis.
     // Ini juga yang membatasi kerugian kalau ada request yang lolos berbarengan.
-    const estimatedInputTokens = estimateTokens(
-      conversation.messages.map((m) => m.content).join("") + message
-    );
+    const estimatedInputTokens = trimmed.estimatedTokens;
     const maxTokens = affordableOutputTokens({
       modelId: model,
       creditBalance: user.creditBalance,
@@ -137,11 +153,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const history: Anthropic.MessageParam[] = conversation.messages.map((m) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
+    const history: Anthropic.MessageParam[] = trimmed.messages.map((m) => ({
+      role: m.role,
       content: m.content,
     }));
-    history.push({ role: "user", content: message });
 
     // 4. Panggil Anthropic API dengan streaming.
     // Pakai create({stream:true}) agar error upstream (invalid key, kredit API
