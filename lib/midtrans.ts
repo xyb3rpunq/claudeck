@@ -54,10 +54,21 @@ export function verifyMidtransSignature(payload: {
   gross_amount: string;
   signature_key: string;
 }): boolean {
-  const serverKey = process.env.MIDTRANS_SERVER_KEY ?? "";
+  const serverKey = process.env.MIDTRANS_SERVER_KEY;
+
+  // Tanpa server key, tanda tangan tidak punya rahasia apa pun: algoritmanya
+  // publik, jadi siapa saja bisa menghitung sha512(order + status + jumlah + "")
+  // dan mengaku pembayarannya lunas. Instalasi yang belum dikonfigurasi harus
+  // menolak semua notifikasi, bukan menerima semuanya.
+  if (!serverKey) return false;
+
   const expected = crypto
     .createHash("sha512")
     .update(payload.order_id + payload.status_code + payload.gross_amount + serverKey)
     .digest("hex");
-  return expected === payload.signature_key;
+
+  // Bandingkan dengan waktu tetap supaya tidak bocor lewat timing.
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(payload.signature_key, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }

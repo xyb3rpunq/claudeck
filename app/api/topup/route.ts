@@ -59,6 +59,19 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     logger.error("topup_failed", { userId, orderId, message: (err as Error).message });
+
+    // Transaksi pending dibuat lebih dulu supaya webhook selalu menemukan
+    // order-nya. Kalau Snap gagal, order itu tidak akan pernah bisa dibayar —
+    // jadi hapus, supaya tidak mengendap selamanya di riwayat user.
+    await prisma.transaction
+      .deleteMany({ where: { paymentRef: orderId, status: "pending" } })
+      .catch((cleanupErr: unknown) =>
+        logger.error("topup_cleanup_failed", {
+          orderId,
+          message: (cleanupErr as Error).message,
+        })
+      );
+
     return NextResponse.json(
       { error: "Gagal membuat transaksi pembayaran. Coba lagi nanti." },
       { status: 502 }

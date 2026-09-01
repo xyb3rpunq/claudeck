@@ -5,16 +5,22 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+/** Jumlah percakapan terbaru yang ditampilkan di sidebar. */
+const CONVERSATION_LIST_LIMIT = 100;
+
 /** List semua percakapan milik user. */
 export async function GET() {
   const session = await getServerSession(authOptions);
   const userId = getSessionUserId(session);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Dibatasi supaya sidebar tidak mengunduh ribuan baris tiap kali halaman
+  // dibuka. Percakapan lama tetap tersimpan dan bisa dibuka lewat URL-nya.
   const conversations = await prisma.conversation.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
     select: { id: true, title: true, createdAt: true },
+    take: CONVERSATION_LIST_LIMIT,
   });
   return NextResponse.json({ conversations });
 }

@@ -69,4 +69,22 @@ describe("verifyMidtransSignature", () => {
     delete process.env.MIDTRANS_SERVER_KEY;
     expect(verifyMidtransSignature({ ...base, signature_key: signed })).toBe(false);
   });
+
+  it("menolak tanda tangan yang dipalsukan memakai server key kosong", () => {
+    // Algoritmanya publik. Kalau instalasi belum dikonfigurasi dan verifikasi
+    // tetap memakai string kosong sebagai kunci, siapa pun bisa menghitung
+    // tanda tangan yang lolos dan menambah saldonya sendiri secara gratis.
+    const forged = sign(base.order_id, base.status_code, base.gross_amount, "");
+
+    delete process.env.MIDTRANS_SERVER_KEY;
+    expect(verifyMidtransSignature({ ...base, signature_key: forged })).toBe(false);
+
+    process.env.MIDTRANS_SERVER_KEY = "";
+    expect(verifyMidtransSignature({ ...base, signature_key: forged })).toBe(false);
+  });
+
+  it("menolak tanda tangan yang panjangnya tidak wajar", () => {
+    expect(verifyMidtransSignature({ ...base, signature_key: "" })).toBe(false);
+    expect(verifyMidtransSignature({ ...base, signature_key: "abc" })).toBe(false);
+  });
 });

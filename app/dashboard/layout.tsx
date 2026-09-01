@@ -6,6 +6,9 @@ import DashboardShell from "@/components/DashboardShell";
 
 export const dynamic = "force-dynamic";
 
+// Isi dashboard bersifat pribadi — jangan sampai terindeks mesin pencari.
+export const metadata = { robots: { index: false, follow: false } };
+
 export default async function DashboardLayout({
   children,
 }: {
