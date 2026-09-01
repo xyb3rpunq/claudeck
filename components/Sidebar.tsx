@@ -151,6 +151,13 @@ export default function Sidebar({
       </nav>
       <div className="space-y-1 border-t border-zinc-800 p-3 text-sm">
         <Link
+          href="/dashboard/usage"
+          onClick={onClose}
+          className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-800"
+        >
+          Pemakaian
+        </Link>
+        <Link
           href="/dashboard/billing"
           onClick={onClose}
           className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-800"

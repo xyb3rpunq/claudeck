@@ -3,6 +3,8 @@ import {
   __resetRateLimitState,
   acquireChatSlot,
   checkRateLimit,
+  checkRegisterRateLimit,
+  createLimiter,
   releaseChatSlot,
 } from "@/lib/rate-limit";
 
@@ -65,5 +67,49 @@ describe("slot chat (anti request paralel)", () => {
     releaseChatSlot("user-j");
     releaseChatSlot("user-j");
     expect(acquireChatSlot("user-j")).toBe(true);
+  });
+});
+
+describe("checkRegisterRateLimit", () => {
+  it("mengizinkan 5 pendaftaran per IP lalu menolak", () => {
+    for (let i = 0; i < 5; i++) {
+      expect(checkRegisterRateLimit("203.0.113.7").allowed).toBe(true);
+    }
+    expect(checkRegisterRateLimit("203.0.113.7").allowed).toBe(false);
+  });
+
+  it("menghitung terpisah per IP", () => {
+    for (let i = 0; i < 5; i++) checkRegisterRateLimit("198.51.100.1");
+    expect(checkRegisterRateLimit("198.51.100.1").allowed).toBe(false);
+    expect(checkRegisterRateLimit("198.51.100.2").allowed).toBe(true);
+  });
+
+  it("memakai jendela satu jam, bukan satu menit", () => {
+    vi.useFakeTimers();
+    for (let i = 0; i < 5; i++) checkRegisterRateLimit("192.0.2.9");
+    expect(checkRegisterRateLimit("192.0.2.9").allowed).toBe(false);
+
+    vi.advanceTimersByTime(60 * 60_000 - 1000); // 59 menit lewat
+    expect(checkRegisterRateLimit("192.0.2.9").allowed).toBe(false);
+
+    vi.advanceTimersByTime(2000); // lewat satu jam
+    expect(checkRegisterRateLimit("192.0.2.9").allowed).toBe(true);
+  });
+});
+
+describe("createLimiter", () => {
+  it("menghormati batas dan jendela yang diberikan", () => {
+    const limiter = createLimiter(2, 1000);
+    expect(limiter.check("k").allowed).toBe(true);
+    expect(limiter.check("k").allowed).toBe(true);
+    expect(limiter.check("k").allowed).toBe(false);
+  });
+
+  it("bisa dikosongkan lewat reset", () => {
+    const limiter = createLimiter(1, 60_000);
+    limiter.check("k");
+    expect(limiter.check("k").allowed).toBe(false);
+    limiter.reset();
+    expect(limiter.check("k").allowed).toBe(true);
   });
 });

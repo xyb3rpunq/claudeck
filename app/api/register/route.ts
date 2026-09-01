@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { checkRegisterRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 
 const registerSchema = z.object({
@@ -9,8 +10,26 @@ const registerSchema = z.object({
   password: z.string().min(8, "Password minimal 8 karakter").max(100),
 });
 
+/** IP pemanggil, mengikuti header proxy yang dipasang Vercel/reverse proxy. */
+function clientIp(req: Request): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.headers.get("x-real-ip") ?? "unknown";
+}
+
 export async function POST(req: Request) {
   try {
+    // Batasi pembuatan akun per IP supaya tidak bisa dibanjiri script.
+    const ip = clientIp(req);
+    const rl = checkRegisterRateLimit(ip);
+    if (!rl.allowed) {
+      logger.warn("register_rate_limited", { ip });
+      return NextResponse.json(
+        { error: "Terlalu banyak pendaftaran dari jaringan ini. Coba lagi nanti." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const parsed = registerSchema.safeParse(body);
     if (!parsed.success) {
