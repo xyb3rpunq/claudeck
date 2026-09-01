@@ -1,0 +1,35 @@
+# Dependensi diinstal ulang di dalam image lewat `npm ci`; mengirimnya sebagai
+# konteks build hanya memperlambat (ratusan MB) tanpa dipakai sama sekali.
+node_modules
+.next
+out
+build
+
+# Riwayat git tidak dibutuhkan di dalam image.
+.git
+.github
+
+# Rahasia tidak boleh ikut masuk image.
+.env
+.env.*
+!.env.example
+
+# Database dev lokal.
+prisma/*.db
+prisma/*.db-journal
+
+# Berkas kerja lokal.
+.claude
+*.log
+npm-debug.log*
+coverage
+.DS_Store
+*.tsbuildinfo
+
+# Test tidak dijalankan saat build image.
+tests
+vitest.config.ts
+
+# Berkas Docker sendiri.
+Dockerfile
+.dockerignore

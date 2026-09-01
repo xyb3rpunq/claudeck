@@ -2,6 +2,7 @@
 // Sengaja tidak membocorkan detail konfigurasi apa pun selain status siap/tidak.
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,12 @@ export async function GET() {
   try {
     await prisma.$queryRaw`SELECT 1`;
     checks.database = true;
-  } catch {
+  } catch (err) {
+    // Response-nya sengaja tidak memuat detail error (bisa membocorkan
+    // connection string), tapi tanpa jejak di log operator tidak punya apa pun
+    // untuk didiagnosis.
     checks.database = false;
+    logger.error("health_database_failed", { message: (err as Error).message });
   }
 
   const healthy = checks.database;

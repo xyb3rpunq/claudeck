@@ -261,7 +261,12 @@ export async function POST(req: Request) {
         }
       },
       cancel() {
-        releaseChatSlot(userId);
+        // Sengaja TIDAK melepas slot di sini. Saat konsumen membatalkan,
+        // start() masih berjalan: enqueue berikutnya melempar, jatuh ke catch,
+        // lalu finally-nya menyimpan dan melepas slot. Kalau cancel ikut
+        // melepas, ada jeda di mana request berikutnya dari user yang sama
+        // sudah memegang slot, lalu finally milik request lama melepasnya —
+        // slot jadi bebas padahal masih ada request berjalan.
       },
     });
 

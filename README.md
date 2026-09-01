@@ -11,7 +11,7 @@ diproses server-side memakai API key resmi milik Claudeck.
 - **NextAuth** (Credentials provider, session JWT, bcrypt)
 - **@anthropic-ai/sdk** — proxy streaming ke Claude, model bisa dipilih user
 - **Midtrans Snap** — top-up saldo (paket 50rb / 100rb / 250rb)
-- **Vitest** — 62 unit test untuk logika pricing, billing, rate limit, dan signature
+- **Vitest** — 70 unit test untuk logika pricing, billing, riwayat, rate limit, dan signature
 
 ## Menjalankan Lokal
 
@@ -106,6 +106,20 @@ setiap model dan setiap bentuk pemakaian.
 docker build -t claudeck .
 docker run -p 3000:3000 --env-file .env claudeck
 ```
+
+Dua hal yang penting diketahui, keduanya ditemukan saat image ini benar-benar
+dijalankan:
+
+- **`.dockerignore` wajib ada.** Next menyalin `.env` ke dalam output
+  `standalone`, jadi tanpa `.dockerignore` seluruh isi `.env` — termasuk
+  `ANTHROPIC_API_KEY` — ikut terpanggang ke dalam image produksi dan bisa dibaca
+  siapa pun yang menarik image itu. Berkas `.dockerignore` di repo ini menahannya,
+  sekaligus memangkas konteks build dari ratusan MB menjadi ~600 byte.
+- **Konfigurasi diberikan saat runtime**, lewat `--env-file` atau `-e`, bukan
+  dipanggang ke image.
+
+Base image `node:20-alpine` memerlukan paket `openssl` agar Prisma dapat memuat
+query engine-nya; ini sudah dipasang di `Dockerfile`.
 
 ## Catatan Sebelum Production
 
