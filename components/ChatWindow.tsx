@@ -28,6 +28,7 @@ export default function ChatWindow({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Muat riwayat percakapan
   useEffect(() => {
@@ -60,6 +61,11 @@ export default function ChatWindow({
     };
   }, [conversationId]);
 
+  // Batalkan stream yang masih jalan kalau komponen dilepas.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
   // Auto-scroll ke bawah
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -73,6 +79,12 @@ export default function ChatWindow({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
+  // Hentikan generasi. Teks yang sudah masuk tetap dipertahankan — server juga
+  // sudah menyimpan dan menagih bagian itu.
+  function handleStop() {
+    abortRef.current?.abort();
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || sending) return;
@@ -81,11 +93,18 @@ export default function ChatWindow({
     setInput("");
     requestAnimationFrame(resizeTextarea);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let streamStarted = false;
+
     try {
       // Buat conversation baru bila belum ada
       let convId = conversationId;
       if (!convId) {
-        const res = await fetch("/api/conversations", { method: "POST" });
+        const res = await fetch("/api/conversations", {
+          method: "POST",
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error("Gagal membuat percakapan baru");
         const data = await res.json();
         convId = data.conversation.id as string;
@@ -101,16 +120,18 @@ export default function ChatWindow({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId: convId, message: text, model }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
         // Buang bubble assistant kosong + kembalikan pesan user ke input
         setMessages((prev) => prev.slice(0, -2));
         setInput(text);
+        const data = await res.json().catch(() => ({}));
         if (res.status === 402) {
           setShowTopup(true);
+          if (data.error) setError(data.error);
         } else {
-          const data = await res.json().catch(() => ({}));
           setError(data.error ?? `Terjadi kesalahan (${res.status})`);
         }
         return;
@@ -120,6 +141,7 @@ export default function ChatWindow({
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       if (reader) {
+        streamStarted = true;
         let acc = "";
         for (;;) {
           const { done, value } = await reader.read();
@@ -137,16 +159,24 @@ export default function ChatWindow({
       // Pindah ke URL percakapan bila ini chat baru
       if (!conversationId && convId) {
         router.push(`/dashboard/chat/${convId}`);
-        router.refresh();
       }
+      // Segarkan saldo di TopBar dan daftar percakapan di sidebar.
+      router.refresh();
     } catch (err) {
-      setError((err as Error).message || "Koneksi terputus. Coba lagi.");
+      if ((err as Error).name === "AbortError") {
+        // Dihentikan user: pertahankan jawaban parsial, jangan tampilkan error.
+        router.refresh();
+      } else {
+        setError((err as Error).message || "Koneksi terputus. Coba lagi.");
+        if (!streamStarted) setInput(text);
+      }
       setMessages((prev) =>
         prev.length && prev[prev.length - 1].content === ""
           ? prev.slice(0, -1)
           : prev
       );
     } finally {
+      abortRef.current = null;
       setSending(false);
     }
   }
@@ -172,9 +202,7 @@ export default function ChatWindow({
           ) : messages.length === 0 ? (
             <div className="pt-24 text-center">
               <div className="text-4xl">💬</div>
-              <h2 className="mt-4 text-xl font-semibold">
-                Mulai percakapan baru
-              </h2>
+              <h2 className="mt-4 text-xl font-semibold">Mulai percakapan baru</h2>
               <p className="mt-2 text-sm text-zinc-500">
                 Tanyakan apa saja ke Claude. Saldo hanya terpotong sesuai token
                 yang dipakai.
@@ -186,9 +214,9 @@ export default function ChatWindow({
                 key={i}
                 role={m.role}
                 content={
-                  m.content ||
-                  (m.role === "assistant" && sending ? "▍" : m.content)
+                  m.content || (m.role === "assistant" && sending ? "▍" : m.content)
                 }
+                streaming={sending && i === messages.length - 1}
               />
             ))
           )}
@@ -218,13 +246,23 @@ export default function ChatWindow({
               placeholder="Ketik pesan... (Enter untuk kirim, Shift+Enter untuk baris baru)"
               className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-zinc-600"
             />
-            <button
-              onClick={handleSend}
-              disabled={sending || !input.trim()}
-              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-40"
-            >
-              {sending ? "..." : "Kirim"}
-            </button>
+            {sending ? (
+              <button
+                onClick={handleStop}
+                title="Hentikan generasi"
+                className="rounded-xl border border-zinc-600 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-40"
+              >
+                Kirim
+              </button>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <ModelPicker value={model} onChange={setModel} disabled={sending} />
